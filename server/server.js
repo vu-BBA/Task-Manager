@@ -2,7 +2,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const cron = require('node-cron');
 
 dotenv.config();
 
@@ -26,17 +25,23 @@ app.use('/api/ml',       require('./routes/ml'));
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/dailyplanner')
-  .then(() => {
-    console.log('✅ MongoDB connected');
-    // Start reminder cron job (every minute)
-    cron.schedule('* * * * *', async () => {
-      const { checkAndSendReminders } = require('./services/reminderService');
-      await checkAndSendReminders();
-    });
-  })
-  .catch(err => console.error('❌ MongoDB error:', err));
+// MongoDB Connection (cache connection)
+let cachedDb = null;
+async function connectToDatabase() {
+  if (cachedDb && mongoose.connection.readyState === 1) return;
+  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/dailyplanner');
+  cachedDb = mongoose.connection;
+}
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+    res.status(500).json({ error: 'Database connection failed' });
+  }
+});
+
+// Export for Vercel serverless
+module.exports = app;
