@@ -7,7 +7,7 @@ primary_region = "iad"
 
 [env]
   NODE_ENV = "production"
-  CLIENT_URL = "https://task-manager-eegm.vercel.app"
+  CLIENT_URL = "https://task-manager-inky-nu.vercel.app"
 
 [http_service]
   internal_port = 8080
