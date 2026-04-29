@@ -8,8 +8,20 @@ dotenv.config();
 const app = express();
 
 // Middleware
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  process.env.CLIENT_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -25,23 +37,42 @@ app.use('/api/ml',       require('./routes/ml'));
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
-// MongoDB Connection (cache connection)
-let cachedDb = null;
+// MongoDB Connection
 async function connectToDatabase() {
-  if (cachedDb && mongoose.connection.readyState === 1) return;
-  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/dailyplanner');
-  cachedDb = mongoose.connection;
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+  try {
+    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/dailyplanner', {
+      serverSelectionTimeoutMS: 5000,
+    });
+    console.log('✅ MongoDB connected');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+    throw err;
+  }
 }
 
+// Connect on startup for non-serverless
+if (require.main === module) {
+  connectToDatabase();
+}
+
+// Middleware to ensure DB connection (for serverless)
 app.use(async (req, res, next) => {
   try {
     await connectToDatabase();
     next();
   } catch (err) {
-    console.error('MongoDB connection error:', err);
     res.status(500).json({ error: 'Database connection failed' });
   }
 });
 
 // Export for Vercel serverless
 module.exports = app;
+
+// Start server locally (not in serverless environment)
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
+}
