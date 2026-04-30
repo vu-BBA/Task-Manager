@@ -13,7 +13,10 @@ export function AuthProvider({ children }) {
     if (!token) { setLoading(false); return; }
     authAPI.me()
       .then(({ data }) => setUser(data.user))
-      .catch(() => localStorage.clear())
+      .catch((err) => {
+        console.error('Failed to load user:', err.response?.data || err.message);
+        localStorage.clear();
+      })
       .finally(() => setLoading(false));
   }, []);
 

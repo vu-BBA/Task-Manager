@@ -3,7 +3,7 @@ const jwt  = require('jsonwebtoken');
 
 const generateTokens = (userId) => {
   const access = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '15m' });
-  const refresh = jwt.sign({ id: userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
+  const refresh = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
   return { access, refresh };
 };
 
@@ -55,7 +55,7 @@ exports.refresh = async (req, res) => {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(401).json({ message: 'No refresh token' });
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id);
     if (!user || !user.isActive) return res.status(401).json({ message: 'User not found' });
 

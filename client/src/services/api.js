@@ -23,12 +23,14 @@ api.interceptors.response.use(
       original._retry = true;
       try {
         const refresh = localStorage.getItem('refresh');
+        if (!refresh) throw new Error('No refresh token');
         const { data } = await axios.post(API_URL + '/api/auth/refresh', { refreshToken: refresh });
         localStorage.setItem('access', data.access);
         localStorage.setItem('refresh', data.refresh);
         original.headers.Authorization = `Bearer ${data.access}`;
         return api(original);
-      } catch {
+      } catch (refreshErr) {
+        console.error('Token refresh failed:', refreshErr.response?.data || refreshErr.message);
         localStorage.clear();
         window.location.href = '/login';
       }
