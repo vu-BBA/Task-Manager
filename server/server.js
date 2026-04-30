@@ -39,16 +39,15 @@ app.use('/api/ml',       require('./routes/ml'));
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
-// Debug endpoint to check if JWT_SECRET is set (don't expose in production!)
-if (process.env.NODE_ENV !== 'production') {
-  app.get('/api/debug', (req, res) => {
-    res.json({ 
-      hasJwtSecret: !!process.env.JWT_SECRET,
-      hasMongoUri: !!process.env.MONGO_URI,
-      nodeEnv: process.env.NODE_ENV
-    });
+// Debug endpoint to check environment variables
+app.get('/api/debug', (req, res) => {
+  res.json({ 
+    hasJwtSecret: !!process.env.JWT_SECRET,
+    hasMongoUri: !!process.env.MONGO_URI,
+    nodeEnv: process.env.NODE_ENV,
+    clientUrl: process.env.CLIENT_URL || 'not set'
   });
-}
+});
 
 // MongoDB Connection
 async function connectToDatabase() {
