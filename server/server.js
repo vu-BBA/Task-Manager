@@ -50,19 +50,27 @@ app.get('/api/debug', (req, res) => {
 });
 
 // MongoDB Connection
+let cached = { conn: null, promise: null };
+
 async function connectToDatabase() {
-  if (mongoose.connection.readyState === 1) {
-    return;
-  }
-  try {
-    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/dailyplanner', {
-      serverSelectionTimeoutMS: 5000,
+  if (cached.conn) return cached.conn;
+  
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 30000,
+    }).then((mongoose) => {
+      console.log('✅ MongoDB connected');
+      return mongoose;
+    }).catch((err) => {
+      console.error('❌ MongoDB connection error:', err.message);
+      cached.promise = null;
+      throw err;
     });
-    console.log('✅ MongoDB connected');
-  } catch (err) {
-    console.error('❌ MongoDB connection error:', err.message);
-    throw err;
   }
+  
+  cached.conn = await cached.promise;
+  return cached.conn;
 }
 
 // Connect on startup for non-serverless
