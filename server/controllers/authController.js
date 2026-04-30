@@ -62,6 +62,7 @@ exports.refresh = async (req, res) => {
     const { access, refresh } = generateTokens(user._id);
     res.json({ access, refresh });
   } catch (err) {
+    console.error('Refresh token error:', err.message);
     res.status(401).json({ message: 'Invalid refresh token' });
   }
 };
