@@ -1,11 +1,27 @@
 const Task = require('../models/Task');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// Simple in-memory cache for AI responses (per session)
+const aiCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 function getGenAI() {
   if (!global.genAI) {
     global.genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
   }
   return global.genAI;
+}
+
+function getCached(key) {
+  const cached = aiCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCache(key, data) {
+  aiCache.set(key, { data, timestamp: Date.now() });
 }
 
 /**
@@ -15,6 +31,10 @@ function getGenAI() {
  *  2. Recurring task detection (frequency analysis)
  *  3. Best productive hour detection
  *  4. AI-powered task analysis and recommendations (Gemini)
+ *  5. Natural Language Task Entry
+ *  6. Smart Task Prioritizer
+ *  7. Motivational Daily Briefing
+ *  8. Automatic Task Breakdown
  */
 
 // ─── 1. SMART SCHEDULING SCORE ────────────────────────────────────────────────
@@ -157,8 +177,13 @@ exports.getAIAnalysis = async (req, res) => {
       return res.json({ analysis: 'No tasks to analyze', recommendations: [] });
     }
 
+    // Check cache
+    const cacheKey = `analysis_${req.user._id}_${tasks.length}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
     // Format tasks for AI analysis
-    const taskSummary = tasks.map(t => 
+    const taskSummary = tasks.map(t =>
       `${t.title} (${t.priority} priority, ${t.energyLevel} energy, deadline: ${t.deadline || 'none'})`
     ).join('\n');
 
@@ -178,7 +203,9 @@ Be concise and practical.`;
     const result = await model.generateContent(prompt);
     const analysis = result.response.text();
 
-    res.json({ analysis, taskCount: tasks.length });
+    const response = { analysis, taskCount: tasks.length };
+    setCache(cacheKey, response);
+    res.json(response);
   } catch (err) {
     console.error('AI Analysis Error:', err);
     res.status(500).json({ message: 'AI analysis failed', error: err.message });
@@ -213,7 +240,7 @@ Category:`;
       try {
         const result = await model.generateContent(prompt);
         const category = result.response.text().trim();
-        
+
         await Task.findByIdAndUpdate(task._id, { category });
         categorized++;
       } catch (e) {
@@ -247,17 +274,273 @@ Estimate realistic completion in days (1-30):`;
 
     const result = await model.generateContent(prompt);
     const daysFromNow = parseInt(result.response.text().trim()) || 3;
-    
+
     const deadline = new Date();
     deadline.setDate(deadline.getDate() + daysFromNow);
 
-    res.json({ 
-      estimatedDays: daysFromNow, 
+    res.json({
+      estimatedDays: daysFromNow,
       suggestedDeadline: deadline.toISOString(),
       reasoning: `Based on task complexity, estimated ${daysFromNow} days is reasonable`
     });
   } catch (err) {
     console.error('Deadline Prediction Error:', err);
     res.status(500).json({ message: 'Deadline prediction failed', error: err.message });
+  }
+};
+
+// ─── 7. NATURAL LANGUAGE TASK ENTRY ──────────────────────────────────────────
+exports.parseNaturalLanguage = async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ message: 'Text input required' });
+    }
+
+    // Check cache
+    const cacheKey = `nl_${text.toLowerCase().trim()}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
+    const prompt = `Parse this task description into a JSON object. Respond with ONLY valid JSON (no markdown, no explanation):
+
+Input: "${text}"
+
+Extract and return JSON with these fields:
+- title: concise task title (max 10 words)
+- duration: estimated duration in minutes (number only, default 60)
+- date: date in YYYY-MM-DD format (today if not specified)
+- time: time in HH:MM format (24h, default 09:00 if not specified)
+- priority: "urgent", "high", "medium", or "low" (default "medium")
+- energyLevel: "high", "medium", or "low" (default "medium")
+- category: one of "Work", "Personal", "Health", "Finance", "Learning", "Hobby", "Errands", "Home"
+
+JSON:`;
+
+    const result = await model.generateContent(prompt);
+    const raw = result.response.text().trim();
+
+    // Extract JSON from response (handle if model wraps in markdown)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+
+    // Ensure defaults
+    if (!parsed.date) parsed.date = new Date().toISOString().split('T')[0];
+    if (!parsed.time) parsed.time = '09:00';
+    if (!parsed.duration) parsed.duration = 60;
+    if (!parsed.priority) parsed.priority = 'medium';
+    if (!parsed.energyLevel) parsed.energyLevel = 'medium';
+
+    const response = { parsed, originalText: text };
+    setCache(cacheKey, response);
+    res.json(response);
+  } catch (err) {
+    console.error('Natural Language Parse Error:', err);
+    res.status(500).json({ message: 'Failed to parse task', error: err.message });
+  }
+};
+
+// ─── 8. SMART TASK PRIORITIZER ──────────────────────────────────────────────
+exports.suggestNextTask = async (req, res) => {
+  try {
+    const tasks = await Task.find({
+      user: req.user._id,
+      isTemplate: false,
+      status: { $in: ['pending', 'in-progress'] },
+    }).limit(15);
+
+    if (tasks.length === 0) {
+      return res.json({ message: 'No pending tasks', suggestion: null });
+    }
+
+    // Check cache based on task IDs
+    const taskIds = tasks.map(t => t._id.toString()).sort().join(',');
+    const cacheKey = `prioritize_${req.user._id}_${taskIds}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
+    const now = new Date();
+    const hour = now.getHours();
+
+    // Energy level based on time of day
+    let timeEnergy = 'medium';
+    if (hour >= 6 && hour <= 11) timeEnergy = 'high';      // Morning
+    else if (hour >= 12 && hour <= 15) timeEnergy = 'high';  // Early afternoon
+    else if (hour >= 16 && hour <= 19) timeEnergy = 'medium'; // Late afternoon
+    else timeEnergy = 'low';                                 // Evening/night
+
+    const taskList = tasks.map(t =>
+      `- ${t.title} (Priority: ${t.priority}, Energy needed: ${t.energyLevel}, Deadline: ${t.deadline || 'none'})`
+    ).join('\n');
+
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
+    const prompt = `You are a productivity coach. Based on the current time (${hour}:00, energy level: ${timeEnergy}), suggest which task the user should start RIGHT NOW.
+
+Tasks:
+${taskList}
+
+Consider:
+1. Current energy level (${timeEnergy}) - match tasks to energy
+2. Urgency (deadlines approaching)
+3. Priority level
+4. Task complexity
+
+Respond with ONLY valid JSON:
+{
+  "suggestedTaskId": "task_id_here",
+  "reason": "brief reason (10 words max)",
+  "tip": "one actionable tip for this task"
+}
+
+JSON:`;
+
+    const result = await model.generateContent(prompt);
+    const raw = result.response.text().trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const suggestion = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+
+    // Find the actual task to return full details
+    const suggestedTask = tasks.find(t => t._id.toString() === suggestion.suggestedTaskId) ||
+                          tasks.sort((a, b) => computeTaskScore(b, now) - computeTaskScore(a, now))[0];
+
+    const response = {
+      suggestion: {
+        task: suggestedTask,
+        reason: suggestion.reason || 'Highest priority based on ML scoring',
+        tip: suggestion.tip || 'Break it into smaller steps if needed',
+        currentTimeEnergy: timeEnergy
+      }
+    };
+
+    setCache(cacheKey, response);
+    res.json(response);
+  } catch (err) {
+    console.error('Task Prioritizer Error:', err);
+    // Fallback to ML scoring
+    const tasks = await Task.find({
+      user: req.user._id,
+      status: { $in: ['pending', 'in-progress'] },
+    }).limit(5);
+    const scored = tasks.map(t => ({ task: t, score: computeTaskScore(t, new Date()) }))
+                        .sort((a, b) => b.score - a.score);
+    res.json({
+      suggestion: scored[0] ? { task: scored[0].task, reason: 'ML score', tip: 'Start now!' } : null
+    });
+  }
+};
+
+// ─── 9. MOTIVATIONAL DAILY BRIEFING ──────────────────────────────────────────
+exports.getDailyBriefing = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [completedToday, overdue, totalPending] = await Promise.all([
+      Task.countDocuments({
+        user: req.user._id,
+        status: 'completed',
+        completedAt: { $gte: today },
+      }),
+      Task.countDocuments({
+        user: req.user._id,
+        status: { $in: ['pending', 'in-progress'] },
+        deadline: { $lt: new Date() },
+      }),
+      Task.countDocuments({
+        user: req.user._id,
+        status: { $in: ['pending', 'in-progress'] },
+      }),
+    ]);
+
+    // Check cache (refresh every 30 min)
+    const cacheKey = `briefing_${req.user._id}_${today.toISOString().split('T')[0]}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
+    const prompt = `Generate a short, motivational 2-sentence greeting for a user's daily task briefing.
+
+Stats:
+- Completed today: ${completedToday} tasks
+- Overdue tasks: ${overdue}
+- Pending tasks: ${totalPending}
+
+Tone: Encouraging, personal, upbeat. Mention their progress specifically.
+
+Respond with ONLY the 2-sentence greeting (no quotes, no explanation):`;
+
+    const result = await model.generateContent(prompt);
+    const greeting = result.response.text().trim();
+
+    const response = {
+      greeting,
+      stats: { completedToday, overdue, totalPending },
+      motivation: completedToday > 0
+        ? `You're on fire! 🔥`
+        : overdue > 3
+          ? `Let's tackle those overdue tasks! 💪`
+          : `Ready to be productive? ✨`
+    };
+
+    setCache(cacheKey, response);
+    res.json(response);
+  } catch (err) {
+    console.error('Daily Briefing Error:', err);
+    res.status(500).json({ message: 'Failed to generate briefing', error: err.message });
+  }
+};
+
+// ─── 10. AUTOMATIC TASK BREAKDOWN ────────────────────────────────────────────
+exports.breakdownTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+
+    const task = await Task.findOne({ _id: taskId, user: req.user._id });
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    // Check cache
+    const cacheKey = `breakdown_${taskId}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
+    const prompt = `Break down this task into 3-5 actionable sub-tasks. Respond with ONLY valid JSON array:
+
+Task: "${task.title}"
+Description: "${task.description || ''}"
+Priority: ${task.priority}
+Duration: ${task.duration || 60} minutes
+
+Return JSON array of objects with fields:
+- title: concise sub-task name
+- duration: estimated minutes (number)
+- order: number (1, 2, 3...)
+
+JSON array:`;
+
+    const result = await model.generateContent(prompt);
+    const raw = result.response.text().trim();
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    const subtasks = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+
+    // Save breakdown to task
+    task.subtasks = subtasks.map((st, i) => ({
+      title: st.title,
+      duration: st.duration || 30,
+      order: st.order || i + 1,
+      completed: false,
+    }));
+    await task.save();
+
+    const response = { taskId: task._id, subtasks: task.subtasks };
+    setCache(cacheKey, response);
+    res.json(response);
+  } catch (err) {
+    console.error('Task Breakdown Error:', err);
+    res.status(500).json({ message: 'Failed to breakdown task', error: err.message });
   }
 };
