@@ -2,10 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
-// Only load dotenv in non-production (local development)
-if (process.env.NODE_ENV !== 'production') {
-  require('dotenv').config();
-}
+require('dotenv').config();
 
 const app = express();
 
@@ -29,70 +26,58 @@ app.use(cors({
 app.use(express.json());
 
 // Routes
-app.use('/api/auth',     require('./routes/auth'));
-app.use('/api/tasks',    require('./routes/tasks'));
-app.use('/api/analytics',require('./routes/analytics'));
-app.use('/api/templates',require('./routes/templates'));
-app.use('/api/admin',    require('./routes/admin'));
-app.use('/api/ml',       require('./routes/ml'));
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/tasks', require('./routes/tasks'));
+app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/templates', require('./routes/templates'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/ml', require('./routes/ml'));
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
 
-// Debug endpoint to check environment variables
+// Debug endpoint
 app.get('/api/debug', (req, res) => {
-  res.json({ 
+  res.json({
     hasJwtSecret: !!process.env.JWT_SECRET,
     hasMongoUri: !!process.env.MONGO_URI,
     nodeEnv: process.env.NODE_ENV,
-    clientUrl: process.env.CLIENT_URL || 'not set'
+    clientUrl: process.env.CLIENT_URL || 'not set',
+    port: process.env.PORT || 8080
   });
 });
 
 // MongoDB Connection
-let cached = { conn: null, promise: null };
-
 async function connectToDatabase() {
-  if (cached.conn) return cached.conn;
+  if (!process.env.MONGO_URI) {
+    throw new Error('MONGO_URI environment variable is not set');
+  }
   
-  if (!cached.promise) {
-    cached.promise = mongoose.connect(process.env.MONGO_URI, {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 30000,
-    }).then((mongoose) => {
-      console.log('✅ MongoDB connected');
-      return mongoose;
-    }).catch((err) => {
-      console.error('❌ MongoDB connection error:', err.message);
-      cached.promise = null;
-      throw err;
     });
+    console.log('✅ MongoDB connected');
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err.message);
+    throw err;
   }
-  
-  cached.conn = await cached.promise;
-  return cached.conn;
 }
 
-// Connect on startup for non-serverless
-if (require.main === module) {
-  connectToDatabase();
-}
+// Start server
+const PORT = process.env.PORT || 8080;
 
-// Middleware to ensure DB connection (for serverless)
-app.use(async (req, res, next) => {
+async function startServer() {
   try {
     await connectToDatabase();
-    next();
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Database connection failed' });
+    console.error('Failed to start server:', err.message);
+    process.exit(1);
   }
-});
-
-// Export for Vercel serverless
-module.exports = app;
-
-// Start server locally (not in serverless environment)
-if (require.main === module) {
-  const PORT = process.env.PORT || 8080;
-  app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
 }
+
+startServer();
