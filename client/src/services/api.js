@@ -73,9 +73,16 @@ export const analyticsAPI = {
 
 // ── ML ───────────────────────────────────────────────
 export const mlAPI = {
-  suggestions:    () => api.get('/ml/suggestions'),
-  recurring:      () => api.get('/ml/recurring'),
-  productiveHours:() => api.get('/ml/productive-hours'),
+  suggestions:        () => api.get('/ml/suggestions'),
+  recurring:          () => api.get('/ml/recurring'),
+  productiveHours:    () => api.get('/ml/productive-hours'),
+  aiAnalysis:         () => api.get('/ml/ai-analysis'),
+  categorizeTasks:    () => api.post('/ml/ai-categorize'),
+  predictDeadline:    (d) => api.post('/ml/ai-deadline', d),
+  parseNaturalLanguage: (d) => api.post('/ml/parse-task', d),
+  suggestNextTask:    () => api.get('/ml/suggest-next'),
+  getDailyBriefing:   () => api.get('/ml/daily-briefing'),
+  breakdownTask:      (id) => api.post(`/ml/breakdown/${id}`),
 };
 
 // ── Templates ────────────────────────────────────────
