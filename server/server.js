@@ -83,4 +83,7 @@ app.use('/api/ml', require('./routes/ml'));
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  if (!process.env.GOOGLE_API_KEY) {
+    console.warn('⚠️  GOOGLE_API_KEY not set - AI features will be disabled');
+  }
 });

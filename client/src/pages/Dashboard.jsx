@@ -32,7 +32,7 @@ export default function Dashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ov, today, sugg, rec, briefing, next] = await Promise.all([
+      const [ov, today, sugg, rec, briefing, next] = await Promise.allSettled([
         analyticsAPI.overview(),
         taskAPI.getToday(),
         mlAPI.suggestions(),
@@ -40,12 +40,20 @@ export default function Dashboard() {
         mlAPI.getDailyBriefing(),
         mlAPI.suggestNextTask(),
       ]);
-      setOverview(ov.data);
-      setTodayTasks(today.data.tasks);
-      setSuggestions(sugg.data.suggestions?.slice(0, 5) || []);
-      setRecurring(rec.data.recurring?.slice(0, 3) || []);
-      setDailyBriefing(briefing.data);
-      setNextTask(next.data.suggestion);
+
+      if (ov.status === 'fulfilled') setOverview(ov.value.data);
+      if (today.status === 'fulfilled') setTodayTasks(today.value.data.tasks);
+
+      if (sugg.status === 'fulfilled') setSuggestions(sugg.value.data.suggestions?.slice(0, 5) || []);
+      if (rec.status === 'fulfilled') setRecurring(rec.value.data.recurring?.slice(0, 3) || []);
+
+      if (briefing.status === 'fulfilled') setDailyBriefing(briefing.value.data);
+      else setDailyBriefing({ greeting: 'Welcome back!', briefing: 'AI features are currently unavailable.' });
+
+      if (next.status === 'fulfilled') setNextTask(next.value.data.suggestion);
+
+      const aiFailed = briefing.status === 'rejected' || next.status === 'rejected';
+      if (aiFailed) toast('AI features unavailable - some insights disabled', { icon: '⚠️' });
     } catch { toast.error('Failed to load dashboard'); }
     finally { setLoading(false); }
   };

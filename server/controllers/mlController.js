@@ -6,6 +6,9 @@ const aiCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function getGenAI() {
+  if (!process.env.GOOGLE_API_KEY) {
+    throw new Error('GOOGLE_API_KEY is not configured');
+  }
   if (!global.genAI) {
     global.genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
   }
