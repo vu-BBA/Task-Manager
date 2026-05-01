@@ -155,14 +155,14 @@ export default function Dashboard() {
       )}
 
       {/* AI Quick Add - Natural Language Entry */}
-      <div className="glass" style={{ padding: 20, marginBottom: 20 }}>
+      <div className="quick-add-ai" style={{ marginBottom: 20 }}>
         <div className="chart-header">
           <div className="chart-title">
             <MessageSquare size={15} style={{ display:'inline', marginRight: 6, color:'var(--accent-light)' }} />
             Quick Add with AI
           </div>
         </div>
-        <div style={{ display:'flex', gap: 8, marginTop: 12 }}>
+        <div className="form-row">
           <input
             type="text"
             className="input"
@@ -173,7 +173,7 @@ export default function Dashboard() {
             style={{ flex: 1 }}
           />
           <button
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary"
             onClick={handleNaturalLanguage}
             disabled={naturalLoading || !naturalInput.trim()}
           >
