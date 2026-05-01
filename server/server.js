@@ -40,6 +40,7 @@ app.get('/api/debug', (req, res) => {
     hasJwtSecret: !!process.env.JWT_SECRET,
     hasMongoUri: !!process.env.MONGO_URI,
     hasRefreshSecret: !!process.env.JWT_REFRESH_SECRET,
+    hasGoogleApiKey: !!process.env.GOOGLE_API_KEY,
     nodeEnv: process.env.NODE_ENV,
     clientUrl: process.env.CLIENT_URL || 'not set',
     port: process.env.PORT || 8080,
