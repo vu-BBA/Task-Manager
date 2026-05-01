@@ -2,7 +2,9 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 const app = express();
 
@@ -25,32 +27,33 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/tasks', require('./routes/tasks'));
-app.use('/api/analytics', require('./routes/analytics'));
-app.use('/api/templates', require('./routes/templates'));
-app.use('/api/admin', require('./routes/admin'));
-app.use('/api/ml', require('./routes/ml'));
-
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date() }));
+// Health check (no DB needed)
+app.get('/api/health', (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStatus = dbState === 1 ? 'connected' : 'disconnected';
+  res.json({ status: 'OK', db: dbStatus, timestamp: new Date() });
+});
 
 // Debug endpoint
 app.get('/api/debug', (req, res) => {
   res.json({
     hasJwtSecret: !!process.env.JWT_SECRET,
     hasMongoUri: !!process.env.MONGO_URI,
+    hasRefreshSecret: !!process.env.JWT_REFRESH_SECRET,
     nodeEnv: process.env.NODE_ENV,
     clientUrl: process.env.CLIENT_URL || 'not set',
-    port: process.env.PORT || 8080
+    port: process.env.PORT || 8080,
+    dbReadyState: mongoose.connection.readyState
   });
 });
 
-// MongoDB Connection
+// MongoDB Connection (lazy)
 async function connectToDatabase() {
+  if (mongoose.connection.readyState === 1) return;
+  
   if (!process.env.MONGO_URI) {
-    throw new Error('MONGO_URI environment variable is not set');
+    console.error('MONGO_URI not set');
+    return;
   }
   
   try {
@@ -61,23 +64,22 @@ async function connectToDatabase() {
     console.log('✅ MongoDB connected');
   } catch (err) {
     console.error('❌ MongoDB connection error:', err.message);
-    throw err;
   }
 }
+
+// Connect to DB in background (don't block server start)
+connectToDatabase();
+
+// Routes
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/tasks', require('./routes/tasks'));
+app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/templates', require('./routes/templates'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/ml', require('./routes/ml'));
 
 // Start server
 const PORT = process.env.PORT || 8080;
-
-async function startServer() {
-  try {
-    await connectToDatabase();
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error('Failed to start server:', err.message);
-    process.exit(1);
-  }
-}
-
-startServer();
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
