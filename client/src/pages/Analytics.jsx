@@ -35,18 +35,21 @@ export default function Analytics() {
   useEffect(() => {
     (async () => {
       try {
-        const [ov, cat, wk, pri, ph] = await Promise.all([
+        const [ov, cat, wk, pri, ph] = await Promise.allSettled([
           analyticsAPI.overview(),
           analyticsAPI.byCategory(),
           analyticsAPI.weekly(),
           analyticsAPI.priority(),
           mlAPI.productiveHours(),
         ]);
-        setOverview(ov.data);
-        setByCategory(cat.data.data);
-        setWeekly(wk.data.data);
-        setPriority(pri.data.data);
-        setProdHours(ph.data.data);
+        if (ov.status === 'fulfilled') setOverview(ov.value.data);
+        if (cat.status === 'fulfilled') setByCategory(cat.value.data.data);
+        if (wk.status === 'fulfilled') setWeekly(wk.value.data.data);
+        if (pri.status === 'fulfilled') setPriority(pri.value.data.data);
+        if (ph.status === 'fulfilled') setProdHours(ph.value.data.data);
+        else setProdHours([]);
+
+        if (ph.status === 'rejected') toast('AI features unavailable - productive hours disabled', { icon: '⚠️' });
       } catch { toast.error('Failed to load analytics'); }
       finally { setLoading(false); }
     })();
