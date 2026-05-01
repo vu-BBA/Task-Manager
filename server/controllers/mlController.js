@@ -1,7 +1,12 @@
 const Task = require('../models/Task');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+function getGenAI() {
+  if (!global.genAI) {
+    global.genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+  }
+  return global.genAI;
+}
 
 /**
  * Lightweight ML Engine — pure JavaScript + Google Gemini AI
@@ -157,7 +162,7 @@ exports.getAIAnalysis = async (req, res) => {
       `${t.title} (${t.priority} priority, ${t.energyLevel} energy, deadline: ${t.deadline || 'none'})`
     ).join('\n');
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
     const prompt = `You are a productivity expert. Analyze these tasks and provide 3 specific recommendations to optimize productivity and reduce overwhelm:
 
 Tasks:
@@ -192,7 +197,7 @@ exports.getAITaskCategorization = async (req, res) => {
       return res.json({ categorized: 0, message: 'All tasks already categorized' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
     let categorized = 0;
 
     for (const task of tasks) {
@@ -232,7 +237,7 @@ exports.getAIDeadlinePrediction = async (req, res) => {
       return res.status(400).json({ message: 'Task title required' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = getGenAI().getGenerativeModel({ model: 'gemini-pro' });
     const prompt = `Estimate a realistic deadline for this task. Respond with ONLY a number representing days from today:
 
 Task: "${title}"
